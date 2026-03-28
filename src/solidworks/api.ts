@@ -1,7 +1,10 @@
 // @ts-ignore
 import winax from 'winax';
+import { promises as fs } from 'fs';
+import * as path from 'path';
 import { SolidWorksModel, SolidWorksFeature } from './types.js';
 import { logger } from '../utils/logger.js';
+import { MacroGenerator } from '../adapters/macro-generator.js';
 
 export class SolidWorksAPI {
   private swApp: any;
@@ -187,26 +190,26 @@ export class SolidWorksAPI {
     return { success: false, error: 'Failed to create line' };
   }
   
-  extrude(params: any): any {
+  async extrude(params: any): Promise<any> {
     if (!this.currentModel) throw new Error('No active model');
-    
+
     const { depth = 25, reverse = false, draft = 0 } = params;
-    
-    const feature = this.createExtrude(depth, draft, reverse);
-    
+
+    const feature = await this.createExtrude(depth, draft, reverse);
+
     if (feature) {
       return { success: true, featureId: feature.name };
     }
-    
+
     return { success: false, error: 'Failed to create extrusion' };
   }
   
   // Feature operations
-  createExtrude(
+  async createExtrude(
     depth: number,
     draft: number = 0,
     reverse: boolean = false
-  ): SolidWorksFeature {
+  ): Promise<SolidWorksFeature> {
     if (!this.currentModel) throw new Error('No model open');
     
     try {
@@ -365,8 +368,20 @@ export class SolidWorksAPI {
               logger.info('FeatureExtrusion succeeded with standard call');
             }
           } catch (e3) {
-            logger.error(`All extrusion methods failed: ${e3}`);
-            throw new Error(`Extrusion failed due to COM interface limitations. Please use the VBA macro at C:\\Users\\vinnie\\Claude\\SWMCP-4\\CreateExtrusion.swp`);
+            logger.warn(`All direct COM extrusion methods failed: ${e3}. Falling back to VBA macro.`);
+            // Method 4: Generate and run a VBA macro as final fallback
+            const macroGen = new MacroGenerator();
+            const macroCode = macroGen.generateExtrusionMacro({ depth, draft, reverse });
+            const tempDir = process.env.TEMP || process.env.TMP || 'C:\\Temp';
+            const macroPath = path.join(tempDir, `extrusion_${Date.now()}.swp`);
+            await fs.writeFile(macroPath, macroCode);
+            try {
+              this.swApp.RunMacro2(macroPath, 'Module1', 'CreateExtrusion', 1, 0);
+              feature = this.currentModel.FeatureByPositionReverse(0);
+              logger.info('Extrusion created via VBA macro fallback');
+            } finally {
+              await fs.unlink(macroPath).catch(() => {});
+            }
           }
         }
       }

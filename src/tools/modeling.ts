@@ -75,9 +75,9 @@ export const modelingTools = [
       draft: z.number().default(0).describe('Draft angle in degrees'),
       reverse: z.boolean().default(false).describe('Reverse direction'),
     }),
-    handler: (args: any, swApi: SolidWorksAPI) => {
+    handler: async (args: any, swApi: SolidWorksAPI) => {
       try {
-        const feature = swApi.createExtrude(args.depth, args.draft, args.reverse);
+        const feature = await swApi.createExtrude(args.depth, args.draft, args.reverse);
         return `Created extrusion: ${feature.name}`;
       } catch (error) {
         return `Failed to create extrusion: ${error}`;
