@@ -28,7 +28,10 @@ npm run typecheck    # Type check without emit
 
 ### COM Interop
 - **`SelectByID2` Callout parameter**: Never pass `null` or `undefined` — both cause "Type mismatch". Use `swApi.selectByID2()` wrapper (in `api.ts`) which passes `new winax.Variant(0, 'dispatch')` (= VBA `Nothing`). All direct `model.Extension.SelectByID2()` calls in tool handlers must go through this wrapper.
-- **`RunMacro2` errors parameter**: Must use `new winax.Variant(0, 'byref')` — passing `0` causes "Type mismatch". See `runMacro()` in `api.ts`.
+- **`RunMacro2` errors parameter**: Must use `new winax.Variant(0, 'pint32')` (= `VT_BYREF|VT_I4`, matching `ByRef Long`) — passing `0` or `new Variant(0, 'byref')` (which gives `VT_BYREF|VT_INT`, platform-sized) causes "Type mismatch". See `runMacro()` in `api.ts`.
+- **`run_vba_macro` active document**: VBA macros use `Application.SldWorks.ActiveDoc` which returns whatever the user is viewing, not the MCP `currentModel`. Always call `swApp.ActivateDoc3(currentModel.GetTitle(), true, 2, errors)` before `RunMacro2` to ensure the macro sees the correct document.
+- **`.swb` macro entry point**: `RunMacro2` with empty module name only finds procedures named `Main`. Use `Sub Main()` in `.swb` files, not custom names like `CreateSpurGear`.
+- **`CreateSpline2(pts, True)`**: Periodic closed splines via `RunMacro2` always return `Nothing` — use connected `CreateLine` segments instead (ensure adjacent lines share the same array element value for exact endpoint coincidence).
 - **`FeatureExtrusion3` requires 23 parameters** — not 13. Sketch must be selected as `'SKETCH'` type (not as a feature) for the profile to be recognised.
 - **`InsertSketch(true)` is a toggle**: Always check `model.SketchManager.ActiveSketch` before calling it. If not in sketch mode, calling it creates a new sketch instead of exiting.
 - **VBA macros**: Never use `MsgBox` (blocks unattended execution). Use `Debug.Print`. Never put comments after `_` line continuation (`_ ' comment` is invalid VBA — `_` must be the last character on the line).

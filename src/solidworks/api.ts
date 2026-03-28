@@ -1,6 +1,6 @@
 // @ts-ignore
 import winax from 'winax';
-import { promises as fs } from 'fs';
+import { promises as fs, writeFileSync } from 'fs';
 import * as path from 'path';
 import { SolidWorksModel, SolidWorksFeature } from './types.js';
 import { logger } from '../utils/logger.js';
@@ -368,7 +368,7 @@ export class SolidWorksAPI {
             const macroPath = path.join(tempDir, `extrusion_${Date.now()}.swb`);
             await fs.writeFile(macroPath, macroCode);
             try {
-              const errors = new (winax as any).Variant(0, 'byref');
+              const errors = new (winax as any).Variant(0, 'pint32');
               this.swApp.RunMacro2(macroPath, '', 'CreateExtrusion', 0, errors);
               feature = this.currentModel.FeatureByPositionReverse(0);
               logger.info('Extrusion created via VBA macro fallback');
@@ -727,8 +727,21 @@ export class SolidWorksAPI {
   // VBA operations
   runMacro(macroPath: string, moduleName: string, procedureName: string, args: any[] = []): any {
     if (!this.swApp) throw new Error('Not connected to SolidWorks');
-    
-    const errors = new (winax as any).Variant(0, 'byref');
+
+    // Write currentModel title to a bridge file so the VBA macro can find the correct document
+    // (VBA ActiveDoc returns whatever the user is viewing, not necessarily currentModel)
+    if (this.currentModel) {
+      try {
+        const title = this.currentModel.GetTitle();
+        const bridgeFile = path.join(process.env.TEMP || process.env.TMP || 'C:\\Temp', 'sw_mcp_active_model.txt');
+        writeFileSync(bridgeFile, title, 'utf8');
+        logger.info(`Wrote model bridge file: ${bridgeFile} -> "${title}"`);
+      } catch (e) {
+        logger.warn(`Could not write model bridge file: ${e}`);
+      }
+    }
+
+    const errors = new (winax as any).Variant(0, 'pint32');
     const result = this.swApp.RunMacro2(
       macroPath,
       moduleName,
@@ -736,7 +749,7 @@ export class SolidWorksAPI {
       0,
       errors
     );
-    
+
     return result;
   }
   
