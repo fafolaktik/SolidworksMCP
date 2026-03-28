@@ -58,7 +58,7 @@ Sub CreateExtrusion()
     Set swModel = swApp.ActiveDoc
 
     If swModel Is Nothing Then
-        MsgBox "ERROR: No active document", vbCritical, "Extrusion Macro"
+        Debug.Print "ERROR: No active document"
         Exit Sub
     End If
 
@@ -69,8 +69,10 @@ Sub CreateExtrusion()
         GoTo ErrorHandler
     End If
     
-    ' Ensure we're not in sketch mode
-    swModel.SketchManager.InsertSketch True
+    ' Exit sketch mode only if currently active
+    If Not swModel.SketchManager.ActiveSketch Is Nothing Then
+        swModel.SketchManager.InsertSketch True
+    End If
     
     ' Clear selections
     swModel.ClearSelection2 True
@@ -121,29 +123,29 @@ Sub CreateExtrusion()
     
     ' Create the extrusion with all parameters
     Set swFeature = swFeatureMgr.FeatureExtrusion3( _
-        ${bothDirections === 'False' ? 'True' : 'False'}, _ ' Single direction
-        ${reverse}, _ ' Flip
-        ${bothDirections}, _ ' Both directions
-        ${endCondition}, _ ' End condition type 1
-        0, _ ' End condition type 2
-        ${depth}, _ ' Depth 1
-        ${params.depth2 ? params.depth2 / 1000 : 0}, _ ' Depth 2
-        ${params.draftWhileExtruding ? 'True' : 'False'}, _ ' Draft while extruding 1
-        False, _ ' Draft while extruding 2
-        ${params.draftOutward ? 'True' : 'False'}, _ ' Draft outward 1
-        False, _ ' Draft outward 2
-        ${draft * Math.PI / 180}, _ ' Draft angle 1 (radians)
-        0, _ ' Draft angle 2
-        ${params.offsetReverse ? 'True' : 'False'}, _ ' Offset reverse 1
-        False, _ ' Offset reverse 2
-        ${params.translateSurface ? 'True' : 'False'}, _ ' Translate surface 1
-        False, _ ' Translate surface 2
-        ${merge}, _ ' Merge
-        ${flipSideToCut}, _ ' Flip side to cut
-        True, _ ' Update
-        0, _ ' Start condition
-        0, _ ' Flip start offset
-        False _ ' Use feature scope
+        ${bothDirections === 'False' ? 'True' : 'False'}, _
+        ${reverse}, _
+        ${bothDirections}, _
+        ${endCondition}, _
+        0, _
+        ${depth}, _
+        ${params.depth2 ? params.depth2 / 1000 : 0.01}, _
+        ${params.draftWhileExtruding ? 'True' : 'False'}, _
+        False, _
+        ${params.draftOutward ? 'True' : 'False'}, _
+        False, _
+        ${draft * Math.PI / 180}, _
+        0, _
+        ${params.offsetReverse ? 'True' : 'False'}, _
+        False, _
+        ${params.translateSurface ? 'True' : 'False'}, _
+        False, _
+        ${merge}, _
+        ${flipSideToCut}, _
+        True, _
+        0, _
+        0, _
+        False _
     )
     
     ' Handle thin feature if specified
@@ -163,18 +165,17 @@ Sub CreateExtrusion()
 
     ' Check if feature was created successfully
     If swFeature Is Nothing Then
-        MsgBox "ERROR: Extrusion feature was not created. Check that a valid sketch is selected.", vbCritical, "Extrusion Macro"
+        Debug.Print "ERROR: Extrusion feature was not created. Check that a valid sketch is selected."
         Exit Sub
     End If
 
-    MsgBox "Extrusion created successfully: " & swFeature.Name, vbInformation, "Extrusion Macro"
+    Debug.Print "Extrusion created successfully: " & swFeature.Name
     Exit Sub
 
 ErrorHandler:
     If errorMsg = "" Then
         errorMsg = "Unexpected error: " & Err.Description & " (Error " & Err.Number & ")"
     End If
-    MsgBox errorMsg, vbCritical, "Extrusion Macro Error"
     Debug.Print errorMsg
 End Sub
 
@@ -224,8 +225,10 @@ Sub CreateRevolve()
         GoTo ErrorHandler
     End If
     
-    ' Ensure we're not in sketch mode
-    swModel.SketchManager.InsertSketch True
+    ' Exit sketch mode only if currently active
+    If Not swModel.SketchManager.ActiveSketch Is Nothing Then
+        swModel.SketchManager.InsertSketch True
+    End If
     
     ' Clear selections
     swModel.ClearSelection2 True

@@ -5,6 +5,7 @@
 
 import { z } from 'zod';
 import { SolidWorksAPI } from '../solidworks/api.js';
+import { logger } from '../utils/logger.js';
 
 /**
  * Complete set of sketch creation and manipulation tools
@@ -67,25 +68,23 @@ export const sketchTools = [
               const planes = ['Front Plane', 'Top Plane', 'Right Plane'];
               const planeName = planes[planeIndex];
               
-              // Use simpler selection approach
               model.ClearSelection2(true);
-              
-              // Try selecting by feature name
-              let selected = false;
-              try {
-                const feature = model.FeatureByName(planeName);
-                if (feature) {
-                  feature.Select2(false, 0);
-                  selected = true;
-                }
-              } catch (e) {
-                // Feature selection failed, continue
+
+              // Try selectByID2 first (correct PLANE type, null-dispatch Callout)
+              let selected = swApi.selectByID2(planeName, 'PLANE', false);
+              if (!selected) {
+                // Fallback: select via feature tree
+                try {
+                  const feature = model.FeatureByName(planeName);
+                  if (feature) {
+                    feature.Select2(false, 0);
+                    selected = true;
+                  }
+                } catch (e) { /* continue */ }
               }
-              
-              // If feature selection didn't work, just proceed
-              // SolidWorks often defaults to Front plane anyway
+
               if (!selected && args.plane !== 'Front') {
-                console.log(`Note: Could not select ${args.plane} plane, using default`);
+                logger.warn(`Could not select ${args.plane} plane, SolidWorks will use default`);
               }
             }
           } catch (e) {
@@ -147,7 +146,7 @@ export const sketchTools = [
         if (!model) throw new Error('No active model');
         
         // Select the sketch
-        const selected = model.Extension.SelectByID2(args.sketchName, 'SKETCH', 0, 0, 0, false, 0, undefined, 0);
+        const selected = swApi.selectByID2(args.sketchName, 'SKETCH', false);
         if (!selected) throw new Error('Sketch not found');
         
         // Edit sketch
@@ -173,19 +172,21 @@ export const sketchTools = [
       try {
         const model = swApi.getCurrentModel();
         if (!model) throw new Error('No active model');
-        
-        // Exit sketch
+
+        // Guard: only call InsertSketch if actually in sketch edit mode.
+        // Calling it when NOT in sketch mode would create a new sketch (toggle).
+        const activeSketch = model.SketchManager.ActiveSketch;
+        if (!activeSketch) {
+          return { success: true, message: 'No active sketch to exit' };
+        }
+
         model.SketchManager.InsertSketch(true);
-        
-        // Rebuild if requested
+
         if (args.rebuild) {
           model.ForceRebuild3(false);
         }
-        
-        return {
-          success: true,
-          message: 'Exited sketch edit mode'
-        };
+
+        return { success: true, message: 'Exited sketch edit mode' };
       } catch (error) {
         return `Failed to exit sketch: ${error}`;
       }
@@ -695,15 +696,9 @@ export const sketchTools = [
         
         // Select entities
         model.ClearSelection2(true);
-        model.Extension.SelectByID2(args.entity1, 'SKETCHSEGMENT', 0, 0, 0, false, 0, undefined, 0);
-        
-        if (args.entity2) {
-          model.Extension.SelectByID2(args.entity2, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
-        }
-        
-        if (args.entity3) {
-          model.Extension.SelectByID2(args.entity3, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
-        }
+        swApi.selectByID2(args.entity1, 'SKETCHSEGMENT', false);
+        if (args.entity2) swApi.selectByID2(args.entity2, 'SKETCHSEGMENT', true);
+        if (args.entity3) swApi.selectByID2(args.entity3, 'SKETCHSEGMENT', true);
         
         // Add constraint
         const success = model.SketchManager.AddConstraint(constraintType);
@@ -744,7 +739,7 @@ export const sketchTools = [
         
         // Select entity
         model.ClearSelection2(true);
-        model.Extension.SelectByID2(args.entity, 'SKETCHSEGMENT', 0, 0, 0, false, 0, undefined, 0);
+        swApi.selectByID2(args.entity, 'SKETCHSEGMENT', false);
         
         // Add dimension
         const textX = args.position?.x || 0;
@@ -815,7 +810,7 @@ export const sketchTools = [
         // Select entities to pattern
         model.ClearSelection2(true);
         args.entities.forEach((entity: string) => {
-          model.Extension.SelectByID2(entity, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
+          swApi.selectByID2(entity, 'SKETCHSEGMENT', true);
         });
         
         // Create pattern
@@ -857,7 +852,7 @@ export const sketchTools = [
         // Select entities to pattern
         model.ClearSelection2(true);
         args.entities.forEach((entity: string) => {
-          model.Extension.SelectByID2(entity, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
+          swApi.selectByID2(entity, 'SKETCHSEGMENT', true);
         });
         
         // Calculate angular spacing
@@ -898,11 +893,11 @@ export const sketchTools = [
         // Select entities to mirror
         model.ClearSelection2(true);
         args.entities.forEach((entity: string) => {
-          model.Extension.SelectByID2(entity, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
+          swApi.selectByID2(entity, 'SKETCHSEGMENT', true);
         });
         
         // Select mirror line
-        model.Extension.SelectByID2(args.mirrorLine, 'SKETCHSEGMENT', 0, 0, 0, true, 1, undefined, 0);
+        swApi.selectByID2(args.mirrorLine, 'SKETCHSEGMENT', true, 1);
         
         // Mirror entities
         model.SketchManager.MirrorSketch();
@@ -937,7 +932,7 @@ export const sketchTools = [
         // Select entities to offset
         model.ClearSelection2(true);
         args.entities.forEach((entity: string) => {
-          model.Extension.SelectByID2(entity, 'SKETCHSEGMENT', 0, 0, 0, true, 0, undefined, 0);
+          swApi.selectByID2(entity, 'SKETCHSEGMENT', true);
         });
         
         // Create offset

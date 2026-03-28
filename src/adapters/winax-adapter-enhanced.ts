@@ -409,13 +409,14 @@ export class EnhancedWinAxAdapter implements ISolidWorksAdapter {
       logger.warn(`Feature tree search failed: ${e}`);
     }
 
-    // Method 2 (fallback): SelectByID2 with undefined for optional params
+    // Method 2 (fallback): SelectByID2 with null-dispatch Callout (VBA Nothing)
     const ext = this.currentModel.Extension;
     const sketchNames = ['Sketch1', 'Sketch2', 'Sketch3', 'Sketch4', 'Sketch5'];
+    const callout = new (winax as any).Variant(0, 'dispatch');
 
     for (const name of sketchNames) {
       try {
-        const selected = ext.SelectByID2(name, 'SKETCH', 0, 0, 0, false, 0, undefined, 0);
+        const selected = ext.SelectByID2(name, 'SKETCH', 0, 0, 0, false, 0, callout, 0);
         if (selected) {
           logger.info(`Selected sketch via SelectByID2: ${name}`);
           return true;
@@ -583,7 +584,8 @@ export class EnhancedWinAxAdapter implements ISolidWorksAdapter {
     if (!this.currentModel) throw new Error('No active model');
     
     const ext = this.currentModel.Extension;
-    ext.SelectByID2(plane + ' Plane', 'PLANE', 0, 0, 0, false, 0, undefined, 0);
+    const callout = new (winax as any).Variant(0, 'dispatch');
+    ext.SelectByID2(plane + ' Plane', 'PLANE', 0, 0, 0, false, 0, callout, 0);
     this.currentModel.SketchManager.InsertSketch(true);
     
     return this.currentModel.SketchManager.ActiveSketch.Name;

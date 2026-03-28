@@ -256,10 +256,15 @@ export class SolidWorksAPI {
             const featName = feat.Name || feat.GetName();
 
             if (typeName === 'ProfileFeature' || (typeName && typeName.toLowerCase().includes('sketch'))) {
-              feat.Select2(false, 0);
+              // Prefer SKETCH-type selection (required by FeatureExtrusion3)
+              const selected = featName ? this.selectByID2(featName, 'SKETCH', false) : false;
+              if (!selected) {
+                // Fallback to feature selection
+                feat.Select2(false, 0);
+              }
               sketchSelected = true;
               selectedSketchName = featName || `Feature at position ${i}`;
-              logger.info(`Selected sketch by feature tree: ${selectedSketchName}`);
+              logger.info(`Selected sketch "${selectedSketchName}" (SKETCH type: ${selected})`);
               break;
             }
           }
@@ -268,25 +273,18 @@ export class SolidWorksAPI {
         logger.warn(`Feature tree search failed: ${e}`);
       }
 
-      // Method 2 (fallback): SelectByID2 with undefined for optional params
+      // Method 2 (fallback): selectByID2 with null-dispatch Callout
       if (!sketchSelected) {
         const sketchNames = ['Sketch1', 'Sketch2', 'Sketch3', 'Sketch4', 'Sketch5'];
         for (const name of sketchNames) {
-          try {
-            const ext = this.currentModel.Extension;
-            if (ext) {
-              const selected = ext.SelectByID2(name, 'SKETCH', 0, 0, 0, false, 0, undefined, 0);
-              if (selected) {
-                sketchSelected = true;
-                selectedSketchName = name;
-                logger.info(`Selected sketch via SelectByID2: ${name}`);
-                break;
-              } else {
-                attemptedSketches.push(name);
-              }
-            }
-          } catch (e) {
-            attemptedSketches.push(`${name} (error: ${e})`);
+          const selected = this.selectByID2(name, 'SKETCH', false);
+          if (selected) {
+            sketchSelected = true;
+            selectedSketchName = name;
+            logger.info(`Selected sketch via selectByID2: ${name}`);
+            break;
+          } else {
+            attemptedSketches.push(name);
           }
         }
       }
@@ -348,35 +346,30 @@ export class SolidWorksAPI {
         } catch (e2) {
           logger.warn(`Alternative method failed: ${e2}`);
           
-          // Method 3: Try to create the extrusion using automation-compatible approach
+          // Method 3: FeatureExtrusion3 with all 23 params (required by SolidWorks)
           try {
-            // Last resort: Try with explicit VARIANT conversion if available
-            const variant = winax.Variant;
-            if (variant) {
-              const params = new variant([
-                true, reverse, false, 0, 0, depthInMeters, 0,
-                false, false, false, false, 0, 0
-              ]);
-              feature = featureMgr.FeatureExtrusion(params);
-              logger.info('FeatureExtrusion succeeded with VARIANT');
-            } else {
-              // Final fallback: standard call
-              feature = featureMgr.FeatureExtrusion(
-                true, reverse, false, 0, 0, depthInMeters, 0,
-                false, false, false, false, 0, 0
-              );
-              logger.info('FeatureExtrusion succeeded with standard call');
-            }
+            feature = featureMgr.FeatureExtrusion3(
+              true, reverse, false,
+              0, 0,
+              depthInMeters, 0.01,
+              false, false, false, false,
+              0, 0,
+              false, false, false, false,
+              true, false, true,
+              0, false, false
+            );
+            logger.info('FeatureExtrusion3 succeeded');
           } catch (e3) {
             logger.warn(`All direct COM extrusion methods failed: ${e3}. Falling back to VBA macro.`);
-            // Method 4: Generate and run a VBA macro as final fallback
+            // Method 4: VBA macro fallback — uses byref Variant for RunMacro2 errors param
             const macroGen = new MacroGenerator();
             const macroCode = macroGen.generateExtrusionMacro({ depth, draft, reverse });
             const tempDir = process.env.TEMP || process.env.TMP || 'C:\\Temp';
-            const macroPath = path.join(tempDir, `extrusion_${Date.now()}.swp`);
+            const macroPath = path.join(tempDir, `extrusion_${Date.now()}.swb`);
             await fs.writeFile(macroPath, macroCode);
             try {
-              this.swApp.RunMacro2(macroPath, 'Module1', 'CreateExtrusion', 1, 0);
+              const errors = new (winax as any).Variant(0, 'byref');
+              this.swApp.RunMacro2(macroPath, '', 'CreateExtrusion', 0, errors);
               feature = this.currentModel.FeatureByPositionReverse(0);
               logger.info('Extrusion created via VBA macro fallback');
             } finally {
@@ -467,7 +460,7 @@ export class SolidWorksAPI {
     // Method 4: Try SelectByID and get dimension
     if (!dimension) {
       try {
-        const selected = this.currentModel.Extension.SelectByID2(name, "DIMENSION", 0, 0, 0, false, 0, undefined, 0);
+        const selected = this.selectByID2(name, "DIMENSION", false);
         if (selected) {
           const selMgr = this.currentModel.SelectionManager;
           if (selMgr && selMgr.GetSelectedObjectCount() > 0) {
@@ -542,7 +535,7 @@ export class SolidWorksAPI {
     // Method 4: Try SelectByID and get dimension
     if (!dimension) {
       try {
-        const selected = this.currentModel.Extension.SelectByID2(name, "DIMENSION", 0, 0, 0, false, 0, undefined, 0);
+        const selected = this.selectByID2(name, "DIMENSION", false);
         if (selected) {
           const selMgr = this.currentModel.SelectionManager;
           if (selMgr && selMgr.GetSelectedObjectCount() > 0) {
@@ -735,12 +728,13 @@ export class SolidWorksAPI {
   runMacro(macroPath: string, moduleName: string, procedureName: string, args: any[] = []): any {
     if (!this.swApp) throw new Error('Not connected to SolidWorks');
     
+    const errors = new (winax as any).Variant(0, 'byref');
     const result = this.swApp.RunMacro2(
       macroPath,
       moduleName,
       procedureName,
-      1, // swRunMacroOption
-      0  // error
+      0,
+      errors
     );
     
     return result;
@@ -913,6 +907,24 @@ export class SolidWorksAPI {
     }
   }
   
+  /**
+   * Safe SelectByID2 wrapper — passes new winax.Variant(0,'dispatch') for the
+   * Callout parameter instead of undefined/null, which SolidWorks rejects with
+   * "Type mismatch" (VT_EMPTY/VT_NULL ≠ VT_DISPATCH expected by IDispatch*).
+   */
+  selectByID2(name: string, type: string, append: boolean = false, mark: number = 0): boolean {
+    try {
+      if (!this.currentModel) return false;
+      const callout = new (winax as any).Variant(0, 'dispatch');
+      return this.currentModel.Extension.SelectByID2(
+        name, type, 0, 0, 0, append, mark, callout, 0
+      );
+    } catch (e) {
+      logger.warn(`SelectByID2("${name}", "${type}") failed: ${e}`);
+      return false;
+    }
+  }
+
   // Helper to get current model
   getCurrentModel(): any {
     this.ensureCurrentModel();

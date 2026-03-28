@@ -27,7 +27,7 @@ export const extrusionHelper = {
       
       for (const name of sketchNames) {
         try {
-          if (ext.SelectByID2(name, 'SKETCH', 0, 0, 0, false, 4, undefined, 0)) {
+          if (swApi.selectByID2(name, 'SKETCH', false, 4)) {
             sketchFound = true;
             break;
           }

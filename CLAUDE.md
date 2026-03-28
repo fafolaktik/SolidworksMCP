@@ -27,9 +27,17 @@ npm run typecheck    # Type check without emit
 ## Key Patterns
 
 ### COM Interop
-- **Never pass `null` to COM optional parameters** - use `undefined` instead. COM interprets `null` as VT_NULL which causes type mismatch errors. This is the root cause of SelectByID2 failures.
-- **Prefer feature tree traversal** over `SelectByID2` for sketch selection. Use `FeatureByPositionReverse()` + `GetTypeName2()` to find sketches reliably.
-- Operations with >12 parameters automatically fall back to VBA macro execution.
+- **`SelectByID2` Callout parameter**: Never pass `null` or `undefined` — both cause "Type mismatch". Use `swApi.selectByID2()` wrapper (in `api.ts`) which passes `new winax.Variant(0, 'dispatch')` (= VBA `Nothing`). All direct `model.Extension.SelectByID2()` calls in tool handlers must go through this wrapper.
+- **`RunMacro2` errors parameter**: Must use `new winax.Variant(0, 'byref')` — passing `0` causes "Type mismatch". See `runMacro()` in `api.ts`.
+- **`FeatureExtrusion3` requires 23 parameters** — not 13. Sketch must be selected as `'SKETCH'` type (not as a feature) for the profile to be recognised.
+- **`InsertSketch(true)` is a toggle**: Always check `model.SketchManager.ActiveSketch` before calling it. If not in sketch mode, calling it creates a new sketch instead of exiting.
+- **VBA macros**: Never use `MsgBox` (blocks unattended execution). Use `Debug.Print`. Never put comments after `_` line continuation (`_ ' comment` is invalid VBA — `_` must be the last character on the line).
+
+### Code Style
+- ESM modules (`"type": "module"` in package.json)
+- Zod schemas for all tool input validation
+- Winston logging (never use `console.*` - it breaks JSON-RPC stdio transport)
+- `@ts-ignore` on winax imports is intentional (no type definitions exist)
 
 ### Code Style
 - ESM modules (`"type": "module"` in package.json)
